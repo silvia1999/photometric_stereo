@@ -5,7 +5,7 @@ import numpy as np
 
 
 IMAGES = 12
-root_fold = "./samples/buddha12/"
+root_fold = "photostereo_py/samples/buddha12/"
 obj_name = "buddha."
 format = ".bmp"
 light_manual = False
@@ -67,8 +67,8 @@ toc = time.process_time()
 print("Process duration: " + str(toc - tic))
 
 # TEST: 3d reconstruction
-myps.computedepthmap()
-# myps.computedepth2()
+# myps.computedepthmap()
+myps.computedepth2()
 # myps.display3dobj()
 cv.imshow("normal", normal_map)
 #cv.imshow("mean", med)
