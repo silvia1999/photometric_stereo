@@ -4,9 +4,9 @@ import time
 import numpy as np
 
 
-IMAGES = 12
-root_fold = "photostereo_py/samples/buddha12/"
-obj_name = "buddha."
+IMAGES = 8
+root_fold = "photostereo_py/samples/shrek/"
+obj_name = "shrek"
 format = ".bmp"
 light_manual = False
 
@@ -33,11 +33,14 @@ if light_manual:
     #tilts = [0, 270, 180, 90]
     #slants = [45, 45, 45, 45]
 
-    slants = [71.4281, 66.8673, 67.3586, 67.7405]
-    tilts = [140.847, 47.2986, -42.1108, -132.558]
+    #slants = [71.4281, 66.8673, 67.3586, 67.7405]
+    #tilts = [140.847, 47.2986, -42.1108, -132.558]
 
-    slants = [42.9871, 49.5684, 45.9698, 43.4908]
-    tilts = [-137.258, 140.542, 44.8952, -48.3291]
+    # slants = [42.9871, 49.5684, 45.9698, 43.4908]
+    # tilts = [-137.258, 140.542, 44.8952, -48.3291]
+
+    tilts = [0, 315, 270, 225, 180, 135, 90, 45]
+    slants = [45, 45, 45, 45, 45, 45, 45, 45]
 
     myps.setlmfromts(tilts, slants)
     print(myps.settsfromlm())
@@ -67,8 +70,8 @@ toc = time.process_time()
 print("Process duration: " + str(toc - tic))
 
 # TEST: 3d reconstruction
-# myps.computedepthmap()
-myps.computedepth2()
+myps.computedepthmap()
+# myps.computedepth2()
 # myps.display3dobj()
 cv.imshow("normal", normal_map)
 #cv.imshow("mean", med)

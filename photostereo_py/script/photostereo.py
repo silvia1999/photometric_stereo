@@ -31,35 +31,35 @@ class photometry:
             input_arr_conv.append(im_fl)
         h = input_arr_conv[0].shape[0]
         w = input_arr_conv[0].shape[1]
-        self.normalmap = np.zeros((h, w, 3), dtype=np.float32)
-        self.pgrads = np.zeros((h, w), dtype=np.float32)
-        self.qgrads = np.zeros((h, w), dtype=np.float32)
-        lpinv = np.linalg.pinv(self.light_mat)
+        self.normalmap = np.zeros((h, w, 3), dtype=np.float32) # 法向量矩阵
+        self.pgrads = np.zeros((h, w), dtype=np.float32) # p梯度
+        self.qgrads = np.zeros((h, w), dtype=np.float32) # q梯度
+        lpinv = np.linalg.pinv(self.light_mat) # 光源矩阵的逆，称为伪逆光源矩阵，大小为3*图像张数
         intensities = []
         norm = []
         for imid in range(0, self.IMAGES):
-            a = np.array(input_arr_conv[imid]).reshape(-1)
+            a = np.array(input_arr_conv[imid]).reshape(-1) # 把二维图展平成一维行向量
             intensities.append(a)
-        intensities = np.array(intensities)
-        rho_z = np.einsum('ij,jk->ik', lpinv, intensities)
-        rho = rho_z.transpose()
-        norm.append(np.sum(np.abs(rho)**2, axis=-1)**(1./2))
-        norm_t = np.array(norm).transpose()
+        intensities = np.array(intensities) # 组成大矩阵，形状为（图像张数，像素总数）
+        rho_z = np.einsum('ij,jk->ik', lpinv, intensities) # 每个像素的法向量，大小为3*像素总数
+        rho = rho_z.transpose() # 转置，大小为像素总数*3
+        norm.append(np.sum(np.abs(rho)**2, axis=-1)**(1./2)) # 每个像素的法向量模长，大小为像素总数
+        norm_t = np.array(norm).transpose() # 大小为像素总数*1
         norm_t = np.clip(norm_t, 0 , 1)
-        norm_t = np.where(norm_t==0, 1, norm_t)
-        self.albedo = np.reshape(norm_t, (h, w))
-        rho = np.divide(rho , norm_t)
-        rho[:, 2] = np.where(rho[:, 2] == 0, 1, rho[:, 2])
-        rho = np.asarray(rho).transpose()
+        norm_t = np.where(norm_t==0, 1, norm_t) # 避免除0错误，模长为0（黑色）的像素点的模长暂时设为1，后续会把它们的反射率设为0
+        self.albedo = np.reshape(norm_t, (h, w)) # 把一维的反射率重新变成二维图像，大小为h*w，即为最终的反照率图像
+        rho = np.divide(rho , norm_t) # 单位法向量，大小为像素总数*3
+        rho[:, 2] = np.where(rho[:, 2] == 0, 1, rho[:, 2]) # 避免除0错误，因为后面梯度计算要除以z，z分量为0的像素点的z分量暂时设为1，后续会把它们的法向量设为0
+        rho = np.asarray(rho).transpose() # 转置，大小为3*像素总数
         self.normalmap[:, :, 0] = np.reshape(rho[0], (h, w))
         self.normalmap[:, :, 1] = np.reshape(rho[1], (h, w))
-        self.normalmap[:, :, 2] = np.reshape(rho[2], (h, w))
+        self.normalmap[:, :, 2] = np.reshape(rho[2], (h, w)) # 把x/y/z分量重新变成三维图像，大小为h*w*3，组合到normalmap中
         self.pgrads[0:h, 0:w] = self.normalmap[:, :, 0] / self.normalmap[:, :, 2]
-        self.qgrads[0:h, 0:w] = self.normalmap[:, :, 1] / self.normalmap[:, :, 2]
+        self.qgrads[0:h, 0:w] = self.normalmap[:, :, 1] / self.normalmap[:, :, 2] # 计算表面在X/Y方向的斜率梯度，大小为h*w
         self.normalmap = self.normalmap.astype(np.float32)
         self.normalmap = cv.cvtColor(self.normalmap, cv.COLOR_BGR2RGB)
-        output_int = cv.normalize(self.normalmap, None, 0, 255, cv.NORM_MINMAX, cv.CV_8UC3)
-        output_int = cv.bitwise_and(output_int, output_int, mask = mask)
+        output_int = cv.normalize(self.normalmap, None, 0, 255, cv.NORM_MINMAX, cv.CV_8UC3) # 把法向量图像的值归一化到0-255的8位无符号整数类型
+        output_int = cv.bitwise_and(output_int, output_int, mask = mask) # 把遮罩以外的像素点的法向量设为0（黑色）
         self.normalmap = cv.bitwise_and(self.normalmap, self.normalmap, mask = mask)
         if self.display:
             cv.imshow('normal_normalized', output_int)
@@ -164,7 +164,9 @@ class photometry:
     def getalbedo(self):
         return self.albedo
 
+    # 基于Frankot-Chellappa算法
     def computedepthmap(self):
+        cycle_compute = False
         h = self.normalmap.shape[0]
         w = self.normalmap.shape[1]
         P = np.zeros((h, w, 2), dtype=np.float32)
@@ -173,27 +175,43 @@ class photometry:
         self.Z = np.zeros((h, w), dtype=np.float32)
         landa = 1.0
         mu = 1.0
-        cv.dft(self.pgrads, P, cv.DFT_COMPLEX_OUTPUT)
-        cv.dft(self.qgrads, Q, cv.DFT_COMPLEX_OUTPUT)
-
-        for i in range (1, h):
-            for j in range (1, w):
-                u = np.sin(i * 2 * np.pi / h)
-                v = np.sin(j * 2 * np.pi / w)
-                uv = np.float_power(u, 2) + np.float_power(v, 2)
-                d = (1 + landa)*uv + mu*np.float_power(uv, 2)
-                tempZ [i, j, 0] = (u*P[i, j, 1] + v*Q[i, j, 1]) / d
-                tempZ [i, j, 1] = (-u*P[i, j, 0] - v*Q[i, j, 0]) / d
-        tempZ[0, 0, 0] = 0
-        tempZ[0, 0, 1] = 0
+        cv.dft(self.pgrads, P, cv.DFT_COMPLEX_OUTPUT) # 对pgrads梯度进行离散傅里叶变换，得到P，大小为h*w*2，2分别是实部和虚部
+        cv.dft(self.qgrads, Q, cv.DFT_COMPLEX_OUTPUT) # 对qgrads梯度进行离散傅里叶变换，得到Q，大小为h*w*2，2分别是实部和虚部
+        if cycle_compute:
+            # 从1开始，因为i=0,j=0时对应直流分量（零频），会导致分母d=0
+            for i in range (1, h):
+                for j in range (1, w):
+                    u = np.sin(i * 2 * np.pi / h)
+                    v = np.sin(j * 2 * np.pi / w)
+                    uv = np.float_power(u, 2) + np.float_power(v, 2) # 频率的平方和（拉普拉斯算子在频域的体现）
+                    d = (1 + landa)*uv + mu*np.float_power(uv, 2) # 频率的平方和的线性组合，作为分母，避免除0错误，包含了解方程时的正则化平滑项
+                    tempZ [i, j, 0] = (u*P[i, j, 1] + v*Q[i, j, 1]) / d
+                    tempZ [i, j, 1] = (-u*P[i, j, 0] - v*Q[i, j, 0]) / d # 分别计算Z的实部和虚部
+            # 手动将零频位置设为0
+            tempZ[0, 0, 0] = 0
+            tempZ[0, 0, 1] = 0
+        else:
+            # 直接用矩阵运算计算所有频率位置的Z的实部和虚部，速度更快，但可能会占用更多内存
+            u = np.sin(np.arange(0, h) * 2 * np.pi / h).reshape((h, 1))
+            v = np.sin(np.arange(0, w) * 2 * np.pi / w).reshape((1, w))
+            uv = np.float_power(u, 2) + np.float_power(v, 2)
+            d = (1 + landa)*uv + mu*np.float_power(uv, 2)
+            # 先将d中为0的位置设为1，避免除0错误
+            d[0, 0] = 1
+            tempZ[:, :, 0] = (u*P[:, :, 1] + v*Q[:, :, 1]) / d
+            tempZ[:, :, 1] = (-u*P[:, :, 0] - v*Q[:, :, 0]) / d
+            # 手动将零频位置设为0
+            tempZ[0, 0, :] = 0
         flags = cv.DFT_INVERSE + cv.DFT_SCALE + cv.DFT_REAL_OUTPUT
-        cv.dft(tempZ, self.Z, flags)
+        # 将tempZ变换回空间域，得到物体实际表面高度self.Z，大小为h*w
+        cv.dft(tempZ, self.Z, flags) # DFT_INVERSE表示进行逆变换，DFT_SCALE表示归一化缩放（除以元素总数），DFT_REAL_OUTPUT表示只需要输出实数
         z_norm = cv.normalize(self.Z, None, 0, 255, cv.NORM_MINMAX, cv.CV_8U)
         if self.display:
             cv.imshow('z_norm', z_norm)
             cv.waitKey(0)
             cv.destroyAllWindows()
         return z_norm
+
 
     def computedepth2(self):
         print("Experimental")
